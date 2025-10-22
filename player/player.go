@@ -2,10 +2,10 @@ package player
 
 import (
 	"errors"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -25,7 +25,13 @@ const (
 	PrevIcon  string = "⏮"
 )
 
-var supportedExtensions = []string{".mp3", ".wav", ".ogg"}
+var decoders = map[string]func(io.ReadCloser) (s beep.StreamSeekCloser, format beep.Format, err error){
+	".mp3": mp3.Decode,
+	".wav": func(rc io.ReadCloser) (s beep.StreamSeekCloser, format beep.Format, err error) {
+		return wav.Decode(rc)
+	},
+	".ogg": vorbis.Decode,
+}
 
 type PlayerControls struct {
 	cursor  int
@@ -64,14 +70,11 @@ func (ps *PlayerState) createStreamerFromFile() error {
 	extension := filepath.Ext(filePath)
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
-	switch extension {
-	case ".mp3":
-		streamer, format, err = mp3.Decode(f)
-	case ".ogg":
-		streamer, format, err = vorbis.Decode(f)
-	case ".wav":
-		streamer, format, err = wav.Decode(f)
+	decoder := decoders[extension]
+	if decoder == nil {
+		log.Fatal("unsupported extension " + extension)
 	}
+	streamer, format, err = decoder(f)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -112,7 +115,8 @@ func (ps *PlayerState) ReadSongListFromDir(dirPath string) ([]string, error) {
 		}
 		fileName := entry.Name()
 		fileExtension := filepath.Ext(fileName)
-		if !slices.Contains(supportedExtensions, fileExtension) {
+		extensionSupported := decoders[fileExtension] != nil
+		if !extensionSupported {
 			continue
 		}
 		songList = append(songList, filepath.Join(dirPath, fileName))

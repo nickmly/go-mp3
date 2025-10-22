@@ -1,5 +1,5 @@
 build-debug:
-	go build -gcflags=all="-N -l"
+	go build -gcflags=all="-N -l" -o debug-go-mp3.exe
 run:
 	go run main.go
 build:
