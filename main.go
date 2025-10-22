@@ -46,7 +46,7 @@ func main() {
 
 	baseFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumnCSS).
-		AddItem(songTextView, 0, 1, false)
+		AddItem(songTextView, 0, 4, false)
 	baseFlex.SetBorder(true).SetTitle("Music Player")
 	playButton := newButton(player.PlayIcon)
 	playButton.SetSelectedFunc(func() {
@@ -85,7 +85,6 @@ func main() {
 	startCursor := 1
 	controls := playerState.AddPlayerControls(startCursor, buttons)
 	buttonsFlex := tview.NewFlex()
-	buttonsFlex.SetBorder(true)
 	for i, btn := range buttons {
 		buttonsFlex.AddItem(btn, 0, 1, i == startCursor)
 	}

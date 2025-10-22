@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -12,6 +13,7 @@ import (
 	"github.com/gopxl/beep/mp3"
 	"github.com/gopxl/beep/speaker"
 	"github.com/gopxl/beep/vorbis"
+	"github.com/gopxl/beep/wav"
 	"github.com/rivo/tview"
 )
 
@@ -22,6 +24,8 @@ const (
 	NextIcon  string = "⏭"
 	PrevIcon  string = "⏮"
 )
+
+var supportedExtensions = []string{".mp3", ".wav", ".ogg"}
 
 type PlayerControls struct {
 	cursor  int
@@ -60,10 +64,13 @@ func (ps *PlayerState) createStreamerFromFile() error {
 	extension := filepath.Ext(filePath)
 	var streamer beep.StreamSeekCloser
 	var format beep.Format
-	if extension == ".mp3" {
+	switch extension {
+	case ".mp3":
 		streamer, format, err = mp3.Decode(f)
-	} else if extension == ".ogg" {
+	case ".ogg":
 		streamer, format, err = vorbis.Decode(f)
+	case ".wav":
+		streamer, format, err = wav.Decode(f)
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -105,7 +112,7 @@ func (ps *PlayerState) ReadSongListFromDir(dirPath string) ([]string, error) {
 		}
 		fileName := entry.Name()
 		fileExtension := filepath.Ext(fileName)
-		if fileExtension != ".ogg" && fileExtension != ".mp3" {
+		if !slices.Contains(supportedExtensions, fileExtension) {
 			continue
 		}
 		songList = append(songList, filepath.Join(dirPath, fileName))
