@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gomp3/filepicker"
 	"log"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gopxl/beep"
+	"github.com/gopxl/beep/mp3"
 	"github.com/gopxl/beep/speaker"
 	"github.com/gopxl/beep/vorbis"
 	"github.com/rivo/tview"
@@ -30,6 +32,9 @@ type PlayerState struct {
 	playing          bool
 	currentSongIndex int
 	controls         PlayerControls
+	songList         []string
+	streamer         beep.StreamSeekCloser
+	ctrl             *beep.Ctrl
 	OnInput          func(event *tcell.EventKey) *tcell.EventKey
 }
 
@@ -45,8 +50,7 @@ func readSongListFromDir(dirPath string) ([]string, error) {
 		}
 		fileName := entry.Name()
 		fileExtension := filepath.Ext(fileName)
-		// TODO: support .wav and .mp3
-		if fileExtension != ".ogg" {
+		if fileExtension != ".ogg" && fileExtension != ".mp3" {
 			continue
 		}
 		songList = append(songList, filepath.Join(dirPath, fileName))
@@ -54,35 +58,81 @@ func readSongListFromDir(dirPath string) ([]string, error) {
 	return songList, nil
 }
 
-func createStreamerFromFile(filePath string, playerState PlayerState) (beep.StreamSeekCloser, *beep.Ctrl, error) {
+func (ps *PlayerState) PlaySong() bool {
+	if ps.ctrl == nil {
+		return false
+	}
+	speaker.Lock()
+	ps.ctrl.Paused = !ps.ctrl.Paused
+	speaker.Unlock()
+	return true
+}
+
+func (ps *PlayerState) NextSong() bool {
+	if len(ps.songList) == 0 {
+		return false
+	}
+	ps.currentSongIndex = (ps.currentSongIndex + 1) % len(ps.songList)
+	ps.createStreamerFromFile()
+	return true
+}
+
+func (ps *PlayerState) PrevSong() bool {
+	if len(ps.songList) == 0 {
+		return false
+	}
+	ps.currentSongIndex = (ps.currentSongIndex - 1 + len(ps.songList)) % len(ps.songList)
+	ps.createStreamerFromFile()
+	return true
+}
+
+func (ps *PlayerState) UpdateSongList(songList []string) {
+	ps.songList = songList
+	ps.currentSongIndex = 0
+	ps.createStreamerFromFile()
+}
+
+func (ps *PlayerState) createStreamerFromFile() error {
+	if ps.streamer != nil {
+		ps.streamer.Close()
+	}
+	filePath := ps.songList[ps.currentSongIndex]
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	streamer, format, err := vorbis.Decode(f)
+	extension := filepath.Ext(filePath)
+	var streamer beep.StreamSeekCloser
+	var format beep.Format
+	if extension == ".mp3" {
+		streamer, format, err = mp3.Decode(f)
+	} else if extension == ".ogg" {
+		streamer, format, err = vorbis.Decode(f)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
+	ps.streamer = streamer
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-	ctrl := &beep.Ctrl{Streamer: beep.Loop(1, streamer), Paused: !playerState.playing}
+	ctrl := &beep.Ctrl{Streamer: beep.Loop(1, streamer), Paused: !ps.playing}
+	ps.ctrl = ctrl
 	speaker.Play(ctrl)
-	return streamer, ctrl, nil
+	return nil
+}
+
+func (ps *PlayerState) Shutdown() {
+	if ps.streamer != nil {
+		ps.streamer.Close()
+	}
 }
 
 func main() {
 	playerState := PlayerState{
 		playing:          false,
 		currentSongIndex: 0,
+		songList:         []string{},
 	}
-	songList, err := readSongListFromDir("songs")
-	if err != nil {
-		log.Fatal(err)
-	}
-	streamer, ctrl, err := createStreamerFromFile(songList[0], playerState)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer streamer.Close()
+	defer playerState.Shutdown()
 	newButton := func(label string) *tview.Button {
 		button := tview.NewButton(label)
 		button.SetBackgroundColor(tcell.ColorBlue)
@@ -99,9 +149,9 @@ func main() {
 		app.Draw()
 	})
 	songListText := ""
-	updateSongList := func(playingIndex int) {
+	refreshSongList := func(playingIndex int) {
 		songListText = ""
-		for i, songPath := range songList {
+		for i, songPath := range playerState.songList {
 			songName := filepath.Base(songPath)
 			if i == playingIndex {
 				songListText += "[\"active\"][yellow]" + songName + "[\"\"]\n"
@@ -113,16 +163,17 @@ func main() {
 		songTextView.Highlight("active")
 		songTextView.ScrollToHighlight()
 	}
-	updateSongList(0)
+
 	baseFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumnCSS).
 		AddItem(songTextView, 0, 1, false)
 	baseFlex.SetBorder(true).SetTitle("Music Player")
 	playButton := newButton(PlayIcon)
 	playButton.SetSelectedFunc(func() {
-		speaker.Lock()
-		ctrl.Paused = !ctrl.Paused
-		speaker.Unlock()
+		success := playerState.PlaySong()
+		if !success {
+			return
+		}
 		if playerState.playing {
 			playerState.playing = false
 			playButton.SetLabel(PlayIcon)
@@ -135,23 +186,19 @@ func main() {
 	})
 	nextButton := newButton(NextIcon)
 	nextButton.SetSelectedFunc(func() {
-		playerState.currentSongIndex = (playerState.currentSongIndex + 1) % len(songList)
-		updateSongList(playerState.currentSongIndex)
-		streamer.Close()
-		streamer, ctrl, err = createStreamerFromFile(songList[playerState.currentSongIndex], playerState)
-		if err != nil {
-			log.Fatal(err)
+		success := playerState.NextSong()
+		if !success {
+			return
 		}
+		refreshSongList(playerState.currentSongIndex)
 	})
 	prevButton := newButton(PrevIcon)
 	prevButton.SetSelectedFunc(func() {
-		playerState.currentSongIndex = (playerState.currentSongIndex - 1 + len(songList)) % len(songList)
-		updateSongList(playerState.currentSongIndex)
-		streamer.Close()
-		streamer, ctrl, err = createStreamerFromFile(songList[playerState.currentSongIndex], playerState)
-		if err != nil {
-			log.Fatal(err)
+		success := playerState.PrevSong()
+		if !success {
+			return
 		}
+		refreshSongList(playerState.currentSongIndex)
 	})
 	controls := PlayerControls{
 		cursor: 1,
@@ -177,9 +224,26 @@ func main() {
 			app.SetFocus(buttonsFlex.GetItem(controls.cursor))
 			return nil
 		}
+
+		if event.Key() == tcell.KeyEscape {
+			filepicker.Open(app, baseFlex, func(path string) {
+				songList, err := readSongListFromDir(path)
+				if err != nil {
+					log.Fatal(err)
+				}
+				if len(songList) == 0 {
+					return
+				}
+				playerState.UpdateSongList(songList)
+				refreshSongList(0)
+			})
+		}
 		return event
 	}
 	buttonsFlex.SetInputCapture(playerState.OnInput)
 	baseFlex.AddItem(buttonsFlex, 0, 1, true)
-	app.SetRoot(baseFlex, true).Run()
+	err := app.SetRoot(baseFlex, true).Run()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

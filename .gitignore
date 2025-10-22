@@ -26,3 +26,6 @@ go.work.sum
 
 # songs
 songs/
+
+# VsCode settings
+.vscode/
