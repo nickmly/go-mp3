@@ -2,136 +2,16 @@ package main
 
 import (
 	"gomp3/filepicker"
+	"gomp3/player"
 	"log"
-	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/gopxl/beep"
-	"github.com/gopxl/beep/mp3"
-	"github.com/gopxl/beep/speaker"
-	"github.com/gopxl/beep/vorbis"
 	"github.com/rivo/tview"
 )
 
-const (
-	PlayIcon  string = "⏵"
-	PauseIcon string = "⏸"
-	StopIcon  string = "⏹"
-	NextIcon  string = "⏭"
-	PrevIcon  string = "⏮"
-)
-
-type PlayerControls struct {
-	cursor  int
-	buttons []tview.Primitive
-}
-
-type PlayerState struct {
-	playing          bool
-	currentSongIndex int
-	controls         PlayerControls
-	songList         []string
-	streamer         beep.StreamSeekCloser
-	ctrl             *beep.Ctrl
-	OnInput          func(event *tcell.EventKey) *tcell.EventKey
-}
-
-func readSongListFromDir(dirPath string) ([]string, error) {
-	dir, err := os.ReadDir(dirPath)
-	if err != nil {
-		return []string{}, err
-	}
-	songList := []string{}
-	for _, entry := range dir {
-		if entry.IsDir() {
-			continue
-		}
-		fileName := entry.Name()
-		fileExtension := filepath.Ext(fileName)
-		if fileExtension != ".ogg" && fileExtension != ".mp3" {
-			continue
-		}
-		songList = append(songList, filepath.Join(dirPath, fileName))
-	}
-	return songList, nil
-}
-
-func (ps *PlayerState) PlaySong() bool {
-	if ps.ctrl == nil {
-		return false
-	}
-	speaker.Lock()
-	ps.ctrl.Paused = !ps.ctrl.Paused
-	speaker.Unlock()
-	return true
-}
-
-func (ps *PlayerState) NextSong() bool {
-	if len(ps.songList) == 0 {
-		return false
-	}
-	ps.currentSongIndex = (ps.currentSongIndex + 1) % len(ps.songList)
-	ps.createStreamerFromFile()
-	return true
-}
-
-func (ps *PlayerState) PrevSong() bool {
-	if len(ps.songList) == 0 {
-		return false
-	}
-	ps.currentSongIndex = (ps.currentSongIndex - 1 + len(ps.songList)) % len(ps.songList)
-	ps.createStreamerFromFile()
-	return true
-}
-
-func (ps *PlayerState) UpdateSongList(songList []string) {
-	ps.songList = songList
-	ps.currentSongIndex = 0
-	ps.createStreamerFromFile()
-}
-
-func (ps *PlayerState) createStreamerFromFile() error {
-	if ps.streamer != nil {
-		ps.streamer.Close()
-	}
-	filePath := ps.songList[ps.currentSongIndex]
-	f, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	extension := filepath.Ext(filePath)
-	var streamer beep.StreamSeekCloser
-	var format beep.Format
-	if extension == ".mp3" {
-		streamer, format, err = mp3.Decode(f)
-	} else if extension == ".ogg" {
-		streamer, format, err = vorbis.Decode(f)
-	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	ps.streamer = streamer
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-	ctrl := &beep.Ctrl{Streamer: beep.Loop(1, streamer), Paused: !ps.playing}
-	ps.ctrl = ctrl
-	speaker.Play(ctrl)
-	return nil
-}
-
-func (ps *PlayerState) Shutdown() {
-	if ps.streamer != nil {
-		ps.streamer.Close()
-	}
-}
-
 func main() {
-	playerState := PlayerState{
-		playing:          false,
-		currentSongIndex: 0,
-		songList:         []string{},
-	}
+	playerState := player.NewPlayerState()
 	defer playerState.Shutdown()
 	newButton := func(label string) *tview.Button {
 		button := tview.NewButton(label)
@@ -151,7 +31,7 @@ func main() {
 	songListText := ""
 	refreshSongList := func(playingIndex int) {
 		songListText = ""
-		for i, songPath := range playerState.songList {
+		for i, songPath := range playerState.CurrentSongList() {
 			songName := filepath.Base(songPath)
 			if i == playingIndex {
 				songListText += "[\"active\"][yellow]" + songName + "[\"\"]\n"
@@ -168,74 +48,67 @@ func main() {
 		SetDirection(tview.FlexColumnCSS).
 		AddItem(songTextView, 0, 1, false)
 	baseFlex.SetBorder(true).SetTitle("Music Player")
-	playButton := newButton(PlayIcon)
+	playButton := newButton(player.PlayIcon)
 	playButton.SetSelectedFunc(func() {
 		success := playerState.PlaySong()
 		if !success {
 			return
 		}
-		if playerState.playing {
-			playerState.playing = false
-			playButton.SetLabel(PlayIcon)
-			return
+		if playerState.IsPlaying() {
+			playButton.SetLabel(player.PlayIcon)
 		} else {
-			playerState.playing = true
-			playButton.SetLabel(PauseIcon)
-			return
+			playButton.SetLabel(player.PauseIcon)
 		}
+		playerState.TogglePlaying()
 	})
-	nextButton := newButton(NextIcon)
+	nextButton := newButton(player.NextIcon)
 	nextButton.SetSelectedFunc(func() {
 		success := playerState.NextSong()
 		if !success {
 			return
 		}
-		refreshSongList(playerState.currentSongIndex)
+		refreshSongList(playerState.CurrentSongIndex())
 	})
-	prevButton := newButton(PrevIcon)
+	prevButton := newButton(player.PrevIcon)
 	prevButton.SetSelectedFunc(func() {
 		success := playerState.PrevSong()
 		if !success {
 			return
 		}
-		refreshSongList(playerState.currentSongIndex)
+		refreshSongList(playerState.CurrentSongIndex())
 	})
-	controls := PlayerControls{
-		cursor: 1,
-		buttons: []tview.Primitive{
-			prevButton,
-			playButton,
-			nextButton,
-		},
+	buttons := []tview.Primitive{
+		prevButton,
+		playButton,
+		nextButton,
 	}
-	playerState.controls = controls
+	startCursor := 1
+	controls := playerState.AddPlayerControls(startCursor, buttons)
 	buttonsFlex := tview.NewFlex()
 	buttonsFlex.SetBorder(true)
-	for i, btn := range controls.buttons {
-		buttonsFlex.AddItem(btn, 0, 1, i == controls.cursor)
+	for i, btn := range buttons {
+		buttonsFlex.AddItem(btn, 0, 1, i == startCursor)
 	}
 	playerState.OnInput = func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyRight {
-			controls.cursor = (controls.cursor + 1) % len(controls.buttons)
-			app.SetFocus(buttonsFlex.GetItem(controls.cursor))
+			cursor := controls.GoRight()
+			app.SetFocus(buttonsFlex.GetItem(cursor))
 			return nil
 		} else if event.Key() == tcell.KeyLeft {
-			controls.cursor = (controls.cursor - 1 + len(controls.buttons)) % len(controls.buttons)
-			app.SetFocus(buttonsFlex.GetItem(controls.cursor))
+			cursor := controls.GoLeft()
+			app.SetFocus(buttonsFlex.GetItem(cursor))
 			return nil
 		}
 
 		if event.Key() == tcell.KeyEscape {
 			filepicker.Open(app, baseFlex, func(path string) {
-				songList, err := readSongListFromDir(path)
+				_, err := playerState.ReadSongListFromDir(path)
 				if err != nil {
-					log.Fatal(err)
+					// TODO: show modal
+					// log.Fatal(err)
+				} else {
+					refreshSongList(0)
 				}
-				if len(songList) == 0 {
-					return
-				}
-				playerState.UpdateSongList(songList)
-				refreshSongList(0)
 			})
 		}
 		return event
