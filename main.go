@@ -94,6 +94,7 @@ func main() {
 	songTextView := tview.NewTextView()
 	songTextView.SetScrollable(true)
 	songTextView.SetDynamicColors(true)
+	songTextView.SetRegions(true)
 	songTextView.SetChangedFunc(func() {
 		app.Draw()
 	})
@@ -101,13 +102,15 @@ func main() {
 	updateSongList := func(playingIndex int) {
 		songListText = ""
 		for i, songPath := range songList {
-			color := "[white]"
+			songName := filepath.Base(songPath)
 			if i == playingIndex {
-				color = "[yellow]"
+				songListText += "[\"active\"][yellow]" + songName + "[\"\"]\n"
+			} else {
+				songListText += "[white]" + songName + "\n"
 			}
-			songListText += color + filepath.Base(songPath) + "\n"
 		}
 		songTextView.SetText(songListText)
+		songTextView.Highlight("active")
 		songTextView.ScrollToHighlight()
 	}
 	updateSongList(0)
