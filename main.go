@@ -16,8 +16,8 @@ func main() {
 	defer playerState.Shutdown()
 	newButton := func(label string) *tview.Button {
 		button := tview.NewButton(label)
-		button.SetBackgroundColor(tcell.ColorBlue)
-		button.SetBackgroundColorActivated(tcell.ColorDarkBlue)
+		button.SetBackgroundColor(tcell.ColorDarkSlateBlue)
+		button.SetBackgroundColorActivated(tcell.ColorLightSteelBlue)
 		button.SetLabelColorActivated(tcell.ColorWhite)
 		return button
 	}
@@ -61,7 +61,7 @@ func main() {
 	})
 	volumeFlex.AddItem(tview.NewBox().SetBackgroundColor(volumeBgColor), 0, 1, false)
 	volumeFlex.AddItem(volumeTextView, 0, 1, false)
-	baseFlex.AddItem(volumeFlex, 0, 1, false)
+	baseFlex.AddItem(volumeFlex, 0, 2, false)
 	playButton := newButton(player.PlayIcon)
 	playButton.SetSelectedFunc(func() {
 		success := playerState.PlaySong()
@@ -140,7 +140,22 @@ func main() {
 		refreshSongList(playerState.CurrentSongIndex())
 	}
 	buttonsFlex.SetInputCapture(playerState.OnInput)
-	baseFlex.AddItem(buttonsFlex, 0, 2, true)
+	baseFlex.AddItem(buttonsFlex, 0, 4, true)
+
+	instructions := []string{
+		"[esc] select folder",
+		"[←/→] select button",
+		"[+/-] volume control",
+	}
+	instructionsFlex := tview.NewFlex()
+	for _, i := range instructions {
+		tv := tview.NewTextView()
+		tv.SetTextAlign(tview.AlignCenter)
+		tv.SetBackgroundColor(tcell.ColorDarkGray)
+		tv.SetText(i)
+		instructionsFlex.AddItem(tv, 0, 1, false)
+	}
+	baseFlex.AddItem(instructionsFlex, 0, 1, false)
 	err := app.SetRoot(baseFlex, true).Run()
 	if err != nil {
 		log.Fatal(err)
