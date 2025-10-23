@@ -39,6 +39,7 @@ func main() {
 				songListText += "[white]" + songName + "\n"
 			}
 		}
+		songTextView.Clear()
 		songTextView.SetText(songListText)
 		songTextView.Highlight("active")
 		songTextView.ScrollToHighlight()
@@ -111,6 +112,9 @@ func main() {
 			})
 		}
 		return event
+	}
+	playerState.OnSongChanged = func() {
+		refreshSongList(playerState.CurrentSongIndex())
 	}
 	buttonsFlex.SetInputCapture(playerState.OnInput)
 	baseFlex.AddItem(buttonsFlex, 0, 1, true)

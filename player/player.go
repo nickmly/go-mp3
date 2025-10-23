@@ -49,19 +49,38 @@ func (pc *PlayerControls) GoLeft() int {
 }
 
 type PlayerState struct {
-	playing          bool
-	currentSongIndex int
-	controls         PlayerControls
-	songList         []string
-	streamer         beep.StreamSeekCloser
-	ctrl             *beep.Ctrl
-	OnInput          func(event *tcell.EventKey) *tcell.EventKey
+	playing            bool
+	currentSongIndex   int
+	controls           PlayerControls
+	songList           []string
+	streamer           beep.StreamSeekCloser
+	ctrl               *beep.Ctrl
+	sampleRate         beep.SampleRate
+	OnInput            func(event *tcell.EventKey) *tcell.EventKey
+	OnSongChanged      func()
+	cancelChan         chan struct{}
+	speakerInitialized bool
+}
+
+func (ps *PlayerState) finishCurrentSong() {
+	speaker.Lock()
+	defer speaker.Unlock()
+	if ps.cancelChan != nil {
+		close(ps.cancelChan)
+		ps.cancelChan = nil
+	}
+	if ps.streamer == nil {
+		return
+	}
+	ps.streamer.Close()
+	ps.streamer = nil
+	if ps.ctrl != nil {
+		ps.ctrl.Paused = true
+	}
 }
 
 func (ps *PlayerState) createStreamerFromFile() error {
-	if ps.streamer != nil {
-		ps.streamer.Close()
-	}
+	ps.cancelChan = make(chan struct{})
 	filePath := ps.songList[ps.currentSongIndex]
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -78,11 +97,40 @@ func (ps *PlayerState) createStreamerFromFile() error {
 	if err != nil {
 		log.Fatal(err)
 	}
+	var ctrl *beep.Ctrl
 	ps.streamer = streamer
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-	ctrl := &beep.Ctrl{Streamer: beep.Loop(1, streamer), Paused: !ps.playing}
+
+	if !ps.speakerInitialized {
+		speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+		ps.speakerInitialized = true
+		ps.sampleRate = format.SampleRate
+	}
+
+	var playStreamer beep.Streamer = streamer
+	if format.SampleRate != ps.sampleRate {
+		playStreamer = beep.Resample(3, format.SampleRate, ps.sampleRate, streamer)
+	}
+
+	ctrl = &beep.Ctrl{Streamer: playStreamer, Paused: !ps.playing}
 	ps.ctrl = ctrl
-	speaker.Play(ctrl)
+	go func(cancel <-chan struct{}) {
+		finished := make(chan bool)
+		speaker.Play(beep.Seq(ctrl, beep.Callback(func() {
+			finished <- true
+		})))
+
+		select {
+		case <-finished:
+			ps.NextSong()
+			if ps.OnSongChanged != nil {
+				ps.OnSongChanged()
+			}
+		case <-cancel:
+			// user manually interrupted
+			return
+		}
+	}(ps.cancelChan)
+
 	return nil
 }
 
@@ -144,6 +192,7 @@ func (ps *PlayerState) NextSong() bool {
 		return false
 	}
 	ps.currentSongIndex = (ps.currentSongIndex + 1) % len(ps.songList)
+	ps.finishCurrentSong()
 	ps.createStreamerFromFile()
 	return true
 }
@@ -153,6 +202,7 @@ func (ps *PlayerState) PrevSong() bool {
 		return false
 	}
 	ps.currentSongIndex = (ps.currentSongIndex - 1 + len(ps.songList)) % len(ps.songList)
+	ps.finishCurrentSong()
 	ps.createStreamerFromFile()
 	return true
 }
@@ -163,6 +213,7 @@ func (ps *PlayerState) updateSongList(songList []string) {
 	}
 	ps.songList = songList
 	ps.currentSongIndex = 0
+	ps.finishCurrentSong()
 	ps.createStreamerFromFile()
 }
 
