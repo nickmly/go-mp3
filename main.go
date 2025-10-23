@@ -30,6 +30,7 @@ func createInstructions() *tview.Flex {
 	instructions := []string{
 		"[esc] select folder",
 		"[←/→] select button",
+		"[enter] confirm",
 		"[+/-] volume control",
 	}
 	instructionsBgColor := tcell.ColorDarkGray
@@ -49,9 +50,7 @@ func createInstructions() *tview.Flex {
 	return instructionsFlex
 }
 
-func main() {
-	playerState := player.NewPlayerState()
-	defer playerState.Shutdown()
+func createPlayerControls(playerState *player.PlayerState, refreshCallback func(index int)) (player.PlayerControls, *tview.Flex) {
 	newButton := func(label string) *tview.Button {
 		button := tview.NewButton(label)
 		button.SetBackgroundColor(tcell.ColorDarkSlateBlue)
@@ -59,7 +58,53 @@ func main() {
 		button.SetLabelColorActivated(tcell.ColorWhite)
 		return button
 	}
-	app := tview.NewApplication()
+
+	playButton := newButton(player.PlayIcon)
+	playButton.SetSelectedFunc(func() {
+		success := playerState.PlaySong()
+		if !success {
+			return
+		}
+		if playerState.IsPlaying() {
+			playButton.SetLabel(player.PlayIcon)
+		} else {
+			playButton.SetLabel(player.PauseIcon)
+		}
+		playerState.TogglePlaying()
+	})
+	nextButton := newButton(player.NextIcon)
+	nextButton.SetSelectedFunc(func() {
+		success := playerState.NextSong()
+		if !success {
+			return
+		}
+		refreshCallback(playerState.CurrentSongIndex())
+	})
+	prevButton := newButton(player.PrevIcon)
+	prevButton.SetSelectedFunc(func() {
+		success := playerState.PrevSong()
+		if !success {
+			return
+		}
+		refreshCallback(playerState.CurrentSongIndex())
+	})
+	buttons := []tview.Primitive{
+		prevButton,
+		playButton,
+		nextButton,
+	}
+
+	startCursor := 1
+	controls := playerState.AddPlayerControls(startCursor, buttons)
+	buttonsFlex := tview.NewFlex()
+	for i, btn := range buttons {
+		buttonsFlex.AddItem(btn, 0, 1, i == startCursor)
+	}
+
+	return controls, buttonsFlex
+}
+
+func createSongView(app *tview.Application, playerState *player.PlayerState) (*tview.TextView, func(index int)) {
 	songTextView := tview.NewTextView()
 	songTextView.SetScrollable(true)
 	songTextView.SetDynamicColors(true)
@@ -84,52 +129,21 @@ func main() {
 		songTextView.ScrollToHighlight()
 	}
 
+	return songTextView, refreshSongList
+}
+
+func main() {
+	playerState := player.NewPlayerState()
+	defer playerState.Shutdown()
+	app := tview.NewApplication()
+	songTextView, refreshSongList := createSongView(app, playerState)
 	baseFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumnCSS).
 		AddItem(songTextView, 0, 6, false)
 	baseFlex.SetBorder(true).SetTitle("Music Player")
 	volumeFlex, volumeTextView := createVolumeControl(app)
 	baseFlex.AddItem(volumeFlex, 0, 2, false)
-	playButton := newButton(player.PlayIcon)
-	playButton.SetSelectedFunc(func() {
-		success := playerState.PlaySong()
-		if !success {
-			return
-		}
-		if playerState.IsPlaying() {
-			playButton.SetLabel(player.PlayIcon)
-		} else {
-			playButton.SetLabel(player.PauseIcon)
-		}
-		playerState.TogglePlaying()
-	})
-	nextButton := newButton(player.NextIcon)
-	nextButton.SetSelectedFunc(func() {
-		success := playerState.NextSong()
-		if !success {
-			return
-		}
-		refreshSongList(playerState.CurrentSongIndex())
-	})
-	prevButton := newButton(player.PrevIcon)
-	prevButton.SetSelectedFunc(func() {
-		success := playerState.PrevSong()
-		if !success {
-			return
-		}
-		refreshSongList(playerState.CurrentSongIndex())
-	})
-	buttons := []tview.Primitive{
-		prevButton,
-		playButton,
-		nextButton,
-	}
-	startCursor := 1
-	controls := playerState.AddPlayerControls(startCursor, buttons)
-	buttonsFlex := tview.NewFlex()
-	for i, btn := range buttons {
-		buttonsFlex.AddItem(btn, 0, 1, i == startCursor)
-	}
+	controls, buttonsFlex := createPlayerControls(playerState, refreshSongList)
 	playerState.OnInput = func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyRight {
 			cursor := controls.GoRight()
