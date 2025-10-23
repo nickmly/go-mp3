@@ -4,12 +4,14 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/gopxl/beep"
+	"github.com/gopxl/beep/effects"
 	"github.com/gopxl/beep/mp3"
 	"github.com/gopxl/beep/speaker"
 	"github.com/gopxl/beep/vorbis"
@@ -55,6 +57,8 @@ type PlayerState struct {
 	songList           []string
 	streamer           beep.StreamSeekCloser
 	ctrl               *beep.Ctrl
+	volume             *effects.Volume
+	currentVolume      float64
 	sampleRate         beep.SampleRate
 	OnInput            func(event *tcell.EventKey) *tcell.EventKey
 	OnSongChanged      func()
@@ -113,9 +117,21 @@ func (ps *PlayerState) createStreamerFromFile() error {
 
 	ctrl = &beep.Ctrl{Streamer: playStreamer, Paused: !ps.playing}
 	ps.ctrl = ctrl
+	// effects.Volume uses a logarithmic Volume value. Convert multiplier -> log2(multiplier).
+	vol := ps.currentVolume
+	v := 0.0
+	if vol > 0 {
+		v = math.Log2(vol)
+	}
+	ps.volume = &effects.Volume{
+		Base:     2,
+		Volume:   v,
+		Streamer: ctrl,
+		Silent:   vol == 0,
+	}
 	go func(cancel <-chan struct{}) {
 		finished := make(chan bool)
-		speaker.Play(beep.Seq(ctrl, beep.Callback(func() {
+		speaker.Play(beep.Seq(ps.volume, beep.Callback(func() {
 			finished <- true
 		})))
 
@@ -139,6 +155,8 @@ func NewPlayerState() *PlayerState {
 		playing:          false,
 		currentSongIndex: 0,
 		songList:         []string{},
+		// default to 100% (1.0 multiplier)
+		currentVolume: 1.0,
 	}
 }
 
@@ -237,4 +255,32 @@ func (ps *PlayerState) CurrentSongList() []string {
 
 func (ps *PlayerState) CurrentSongIndex() int {
 	return ps.currentSongIndex
+}
+
+func (ps *PlayerState) IncreaseVolume() float64 {
+	ps.currentVolume = math.Min(2.0, ps.currentVolume*1.1)
+	if ps.volume != nil {
+		if ps.currentVolume == 0 {
+			ps.volume.Silent = true
+			ps.volume.Volume = 0
+		} else {
+			ps.volume.Silent = false
+			ps.volume.Volume = math.Log2(ps.currentVolume)
+		}
+	}
+	return ps.currentVolume * 100
+}
+
+func (ps *PlayerState) DecreaseVolume() float64 {
+	ps.currentVolume = math.Max(0.0, ps.currentVolume*0.9)
+	if ps.volume != nil {
+		if ps.currentVolume == 0 {
+			ps.volume.Silent = true
+			ps.volume.Volume = 0
+		} else {
+			ps.volume.Silent = false
+			ps.volume.Volume = math.Log2(ps.currentVolume)
+		}
+	}
+	return ps.currentVolume * 100
 }
