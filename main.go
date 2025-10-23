@@ -12,9 +12,8 @@ import (
 	"github.com/rivo/tview"
 )
 
-func createVolumeControl(app *tview.Application) (*tview.Flex, *tview.TextView) {
+func createVolumeControl(app *tview.Application) *tview.TextView {
 	volumeBgColor := tcell.ColorDarkSlateGray
-	volumeFlex := tview.NewFlex().SetDirection(tview.FlexColumnCSS)
 	volumeTextView := tview.NewTextView()
 	volumeTextView.SetTextAlign(tview.AlignRight)
 	volumeTextView.SetBackgroundColor(volumeBgColor)
@@ -22,9 +21,9 @@ func createVolumeControl(app *tview.Application) (*tview.Flex, *tview.TextView) 
 	volumeTextView.SetChangedFunc(func() {
 		app.Draw()
 	})
-	volumeFlex.AddItem(tview.NewBox().SetBackgroundColor(volumeBgColor), 0, 1, false)
-	volumeFlex.AddItem(volumeTextView, 0, 1, false)
-	return volumeFlex, volumeTextView
+	// volumeFlex.AddItem(tview.NewBox().SetBackgroundColor(volumeBgColor), 0, 1, false)
+	// volumeFlex.AddItem(volumeTextView, 0, 1, false)
+	return volumeTextView
 }
 
 func createInstructions() *tview.Flex {
@@ -141,10 +140,10 @@ func main() {
 	songTextView, refreshSongList := createSongView(app, playerState)
 	baseFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumnCSS).
-		AddItem(songTextView, 0, 6, false)
+		AddItem(songTextView, 0, 10, false)
 	baseFlex.SetBorder(true).SetTitle("Music Player")
-	volumeFlex, volumeTextView := createVolumeControl(app)
-	baseFlex.AddItem(volumeFlex, 0, 2, false)
+	volumeTextView := createVolumeControl(app)
+	baseFlex.AddItem(volumeTextView, 0, 1, false)
 	controls, buttonsFlex := createPlayerControls(playerState, refreshSongList)
 
 	var lastDir string
