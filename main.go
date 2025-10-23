@@ -11,6 +11,44 @@ import (
 	"github.com/rivo/tview"
 )
 
+func createVolumeControl(app *tview.Application) (*tview.Flex, *tview.TextView) {
+	volumeBgColor := tcell.ColorDarkSlateGray
+	volumeFlex := tview.NewFlex().SetDirection(tview.FlexColumnCSS)
+	volumeTextView := tview.NewTextView()
+	volumeTextView.SetTextAlign(tview.AlignRight)
+	volumeTextView.SetBackgroundColor(volumeBgColor)
+	volumeTextView.SetText("Volume: 100%\t")
+	volumeTextView.SetChangedFunc(func() {
+		app.Draw()
+	})
+	volumeFlex.AddItem(tview.NewBox().SetBackgroundColor(volumeBgColor), 0, 1, false)
+	volumeFlex.AddItem(volumeTextView, 0, 1, false)
+	return volumeFlex, volumeTextView
+}
+
+func createInstructions() *tview.Flex {
+	instructions := []string{
+		"[esc] select folder",
+		"[←/→] select button",
+		"[+/-] volume control",
+	}
+	instructionsBgColor := tcell.ColorDarkGray
+	instructionsFlex := tview.NewFlex()
+	for _, i := range instructions {
+		tv := tview.NewTextView()
+		tv.SetTextAlign(tview.AlignCenter)
+		tv.SetBackgroundColor(instructionsBgColor)
+		tv.SetText(i)
+		f := tview.NewFlex()
+		f.SetDirection(tview.FlexColumnCSS)
+		f.AddItem(tview.NewBox().SetBackgroundColor(instructionsBgColor), 0, 1, false)
+		f.AddItem(tv, 0, 1, false)
+		f.AddItem(tview.NewBox().SetBackgroundColor(instructionsBgColor), 0, 1, false)
+		instructionsFlex.AddItem(f, 0, 1, false)
+	}
+	return instructionsFlex
+}
+
 func main() {
 	playerState := player.NewPlayerState()
 	defer playerState.Shutdown()
@@ -50,17 +88,7 @@ func main() {
 		SetDirection(tview.FlexColumnCSS).
 		AddItem(songTextView, 0, 6, false)
 	baseFlex.SetBorder(true).SetTitle("Music Player")
-	volumeBgColor := tcell.ColorDarkSlateGray
-	volumeFlex := tview.NewFlex().SetDirection(tview.FlexColumnCSS)
-	volumeTextView := tview.NewTextView()
-	volumeTextView.SetTextAlign(tview.AlignRight)
-	volumeTextView.SetBackgroundColor(volumeBgColor)
-	volumeTextView.SetText("Volume: 100%")
-	volumeTextView.SetChangedFunc(func() {
-		app.Draw()
-	})
-	volumeFlex.AddItem(tview.NewBox().SetBackgroundColor(volumeBgColor), 0, 1, false)
-	volumeFlex.AddItem(volumeTextView, 0, 1, false)
+	volumeFlex, volumeTextView := createVolumeControl(app)
 	baseFlex.AddItem(volumeFlex, 0, 2, false)
 	playButton := newButton(player.PlayIcon)
 	playButton.SetSelectedFunc(func() {
@@ -141,20 +169,7 @@ func main() {
 	}
 	buttonsFlex.SetInputCapture(playerState.OnInput)
 	baseFlex.AddItem(buttonsFlex, 0, 4, true)
-
-	instructions := []string{
-		"[esc] select folder",
-		"[←/→] select button",
-		"[+/-] volume control",
-	}
-	instructionsFlex := tview.NewFlex()
-	for _, i := range instructions {
-		tv := tview.NewTextView()
-		tv.SetTextAlign(tview.AlignCenter)
-		tv.SetBackgroundColor(tcell.ColorDarkGray)
-		tv.SetText(i)
-		instructionsFlex.AddItem(tv, 0, 1, false)
-	}
+	instructionsFlex := createInstructions()
 	baseFlex.AddItem(instructionsFlex, 0, 1, false)
 	err := app.SetRoot(baseFlex, true).Run()
 	if err != nil {
