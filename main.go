@@ -5,6 +5,7 @@ import (
 	"gomp3/filepicker"
 	"gomp3/player"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/gdamore/tcell/v2"
@@ -136,6 +137,7 @@ func main() {
 	playerState := player.NewPlayerState()
 	defer playerState.Shutdown()
 	app := tview.NewApplication()
+
 	songTextView, refreshSongList := createSongView(app, playerState)
 	baseFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumnCSS).
@@ -144,6 +146,8 @@ func main() {
 	volumeFlex, volumeTextView := createVolumeControl(app)
 	baseFlex.AddItem(volumeFlex, 0, 2, false)
 	controls, buttonsFlex := createPlayerControls(playerState, refreshSongList)
+
+	var lastDir string
 	playerState.OnInput = func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyRight {
 			cursor := controls.GoRight()
@@ -156,13 +160,24 @@ func main() {
 		}
 
 		if event.Key() == tcell.KeyEscape {
-			filepicker.Open(app, baseFlex, func(path string) {
-				_, err := playerState.ReadSongListFromDir(path)
+			var dir = lastDir
+			if dir == "" {
+				d, err := os.Getwd()
 				if err != nil {
-					// TODO: show modal
-				} else {
-					refreshSongList(0)
+					log.Fatal(err)
 				}
+				dir = d
+			}
+			filepicker.Open(app, baseFlex, dir, func(path string) {
+				if lastDir != path {
+					_, err := playerState.ReadSongListFromDir(path)
+					if err != nil {
+						// TODO: show modal
+					} else {
+						refreshSongList(0)
+					}
+				}
+				lastDir = path
 			})
 		}
 

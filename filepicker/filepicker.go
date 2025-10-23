@@ -81,18 +81,14 @@ func (fp *FilePicker) PrintPaths() string {
 	return text
 }
 
-func NewFilePicker() *FilePicker {
-	currentDir, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
-	fp := &FilePicker{cursor: 0, currentDir: currentDir}
-	fp.populatePaths(currentDir)
+func NewFilePicker(dir string) *FilePicker {
+	fp := &FilePicker{cursor: 0, currentDir: dir}
+	fp.populatePaths(dir)
 	return fp
 }
 
-func Open(app *tview.Application, root tview.Primitive, onSelect func(path string)) {
-	fp := NewFilePicker()
+func Open(app *tview.Application, root tview.Primitive, dir string, onSelect func(path string)) {
+	fp := NewFilePicker(dir)
 	base := tview.NewFlex().SetDirection(tview.FlexColumnCSS)
 	base.SetBorder(true)
 	base.SetTitle("Select Directory (Esc to go back)")
