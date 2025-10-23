@@ -155,12 +155,12 @@ func main() {
 		// Plus
 		if event.Rune() == 61 {
 			v := playerState.IncreaseVolume()
-			volumeTextView.SetText(fmt.Sprintf("Volume: %.1f%%", v))
+			volumeTextView.SetText(fmt.Sprintf("Volume: %.1f%%\t", v))
 		}
 		// Minus
 		if event.Rune() == 45 {
 			v := playerState.DecreaseVolume()
-			volumeTextView.SetText(fmt.Sprintf("Volume: %.1f%%", v))
+			volumeTextView.SetText(fmt.Sprintf("Volume: %.1f%%\t", v))
 		}
 		return event
 	}
